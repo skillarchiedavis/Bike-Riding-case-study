@@ -1,0 +1,321 @@
+---
+title: "How Does a Bike-Share Navigate Speedy Success Case study"
+author: "Skillarchie davis"
+date: "6/1/2021"
+output: html_document
+---
+## Step 1: Import your data
+
+The data is own by the city of Chicago was colleted by Motivate International Inc.
+
+You can learn more about the data integrity here:
+https://www.divvybikes.com/data-license-agreement
+
+You can retrieve the dataset from here:
+https://divvy-tripdata.s3.amazonaws.com/index.html
+
+Run the code below to read in the file 'hotel_bookings.csv' into a data frame: 
+```{r}
+library(readr)
+Bike_rental <- read_csv("C:/Users/skill/Desktop/Projects/Datasets/202104-divvy-tripdata.csv")
+#View(X202104_divvy_tripdata)
+```
+
+```{r}
+library("lubridate")
+library(jsonlite)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+# text mining library
+library(tidytext)
+library(tm)
+# coupled words analysis
+library(widyr)
+# plotting packages
+library(igraph)
+```
+
+## Step 2: Refresh Your Memory
+
+Preview the dataset with head(), glimse, summary and colnames functions
+
+```{r}
+head(Bike_rental)
+```
+
+```{r}
+glimpse(Bike_rental)
+```
+
+```{r}
+colnames(Bike_rental)
+```
+
+```{r}
+summary(Bike_rental)
+```
+
+
+## Step 3: Check for inconsistency in the Data. 
+
+This may inlude null values, incorrect input and wrong data type.
+
+### checking how many rows are incomplete
+```{r}
+nrow(Bike_rental[!complete.cases(Bike_rental),])
+```
+
+
+### checking how many NA per column
+```{r}
+apply(Bike_rental,2,function(x) sum(is.na(x))) 
+```
+
+
+The result from the apply function made me decide to investigate the incomplete columns by using histogram and boxplot.
+
+### The use of visualisation to see extent of the outliers within each column.
+```{r}
+hist(Bike_rental$start_lat)
+hist(Bike_rental$end_lat)
+hist(Bike_rental$start_lng)
+hist(Bike_rental$end_lng)
+```
+
+
+```{r}
+boxplot(Bike_rental$start_lat)
+boxplot(Bike_rental$end_lat)
+boxplot(Bike_rental$start_lng)
+boxplot(Bike_rental$end_lng)
+```
+
+## Step 4 : Remove NA's from the dataset
+
+After visualising the inconsistency in the data I decided to removed the NA's 
+```{r}
+Bike_rental <- na.omit(Bike_rental)
+```
+
+## Step 5 : Check to see if NA's values were removed
+
+```{r}
+apply(Bike_rental,2,function(x) sum(is.na(x))) 
+```
+
+
+## The summary of all columns after data mining and cleaning.
+```{r}
+summary(Bike_rental)
+```
+
+## Step 6: Formatting the data for analysis
+
+This include adding extra columns and also deleting coulums that are not needed.
+
+```{r}
+library(chron) # library to convert character back to times data type
+
+# stripe the Times format from the Datetime data type
+Bike_rental = Bike_rental %>% mutate(start_time = strftime(Bike_rental$started_at, tz = "GMT", format = "%H:%M:%S"),end_time = strftime(Bike_rental$ended_at, tz = "GMT", format = "%H:%M:%S"))
+
+# Convert from character back to time 
+Bike_rental = Bike_rental %>% mutate(start_time = chron(times = start_time),end_time = chron(times = end_time))
+
+
+# create a new column ride_length by substrating starting time from end time
+Bike_rental = Bike_rental %>% mutate(ride_length = as.numeric(end_time - start_time))
+
+
+Bike_rental = Bike_rental %>% mutate(ride_length = format(as.POSIXct((ride_length) * 86400, origin = "1970-01-01", tz = "UTC"), "%H:%M:%S"))# convert to hms format but datatype is character
+
+Bike_rental = Bike_rental %>% mutate(ride_length = chron(times = ride_length)) # convert back to time
+
+class(Bike_rental$ride_length)
+```
+
+
+## Converting the date to weekdays
+
+This will help me get better insights when I start to analyze the data
+
+```{r}
+Bike_rental$day_of_week_start <- weekdays(Bike_rental$started_at)
+Bike_rental$day_of_week_end <- weekdays(Bike_rental$ended_at)
+
+```
+
+
+## Converting the date to Months
+```{r}
+Bike_rental$Start_Month <- months(Bike_rental$started_at)
+Bike_rental$End_Month <- months(Bike_rental$ended_at)
+```
+
+## Converting the date to Years
+```{r}
+Bike_rental$Year <- year(Bike_rental$started_at)
+View(Bike_rental)
+```
+
+
+## Cleaning Bad Data 
+```{r}
+Bike_rental <- Bike_rental[!(Bike_rental$start_station_name == "HQ QR" | Bike_rental$ride_length<0),]
+```
+
+
+### Reassign to the desired values 
+```{r}
+Bike_rental <-  Bike_rental %>% 
+  mutate(member_casual = recode(member_casual,"Subscriber" = "member","Customer" = "casual"))
+
+```
+
+## Step 7: Analyze the data for insights
+
+
+### Descriptive analysizing the ride_length column
+```{r}
+min(Bike_rental$ride_length)#shortest ride
+```
+
+
+```{r}
+max(Bike_rental$ride_length)#longest ride
+```
+
+```{r}
+median(Bike_rental$ride_length)#midpoint number in the ascending array of ride lengths
+```
+
+
+```{r}
+mean(Bike_rental$ride_length)
+```
+
+
+
+# Compare members and casual users
+```{r}
+aggregate(Bike_rental$ride_length ~ Bike_rental$member_casual, FUN = mean)
+aggregate(Bike_rental$ride_length ~ Bike_rental$member_casual, FUN = median)
+aggregate(Bike_rental$ride_length ~ Bike_rental$member_casual, FUN = max)
+aggregate(Bike_rental$ride_length ~ Bike_rental$member_casual, FUN = min)
+
+```
+
+### Checking the most common days and months
+```{r}
+library(modeest) # Conatins the mfv() function that will be used to calculate mode.
+casual_rider <- subset(Bike_rental, member_casual == "casual")
+membership_rider <- subset(Bike_rental, member_casual == "member")
+```
+
+### Most frequent days and month that for a casual rider
+```{r}
+mfv(casual_rider$day_of_week_start) # mode function. Returns most frequent value.
+mfv(casual_rider$day_of_week_end)
+mfv(casual_rider$Start_Month)
+```
+
+### Most frequent days and month that for a Membership rider
+```{r}
+mfv(membership_rider$day_of_week_start)
+mfv(membership_rider$day_of_week_end)
+mfv(membership_rider$Start_Month)
+```
+
+### Calculating the average ride_length for members and casual riders
+```{r}
+Bike_rental %>%
+	filter( member_casual == "casual" | member_casual =="member") %>%
+	group_by(member_casual) %>%
+	summarise(mean_by_rider_type = mean(ride_length))
+```
+
+
+### Calculating the average ride_length for week days for members and casual users
+```{r}
+Bike_rental %>%
+	mutate(weekday = wday(started_at, label = TRUE)) %>%
+	group_by(member_casual,weekday) %>%
+	summarise(mean_by_rider_type = mean(ride_length),.groups = 'drop') 
+```
+
+
+## Calculate the number of rides for users by day_of_week 
+```{r}
+Bike_rental %>% 
+  mutate(weekday = wday(started_at, label = TRUE)) %>% 
+  group_by(member_casual, weekday) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length), .groups = 'drop') %>%
+  arrange(member_casual, weekday) 
+```
+
+
+## Let's visualize the number of rides by type of bicycle separated by rider type
+```{r}
+Bike_rental %>% 
+  mutate(weekday = wday(started_at, label = TRUE)) %>% 
+  group_by(member_casual, rideable_type, weekday) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length), .groups = 'drop') %>%
+  arrange(member_casual, weekday) %>% 
+  ggplot(aes(x =weekday, y = number_of_rides, fill = rideable_type)) +
+  labs(title = "Number of  of Rides by type of bicycle separated by rider type", x = "Week Days", y = "Number of Rides")+
+  geom_col(position = "dodge")+ 
+  facet_wrap(~member_casual)
+ggsave("Number of  of Rides by type of bicycle separated by rider type.png")
+```
+
+
+
+## Let's visualize the number of rides by rider type
+```{r}
+Bike_rental %>% 
+  mutate(weekday = wday(started_at, label = TRUE)) %>% 
+  group_by(member_casual, weekday) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length), .groups = 'drop') %>% 
+  arrange(member_casual, weekday)  %>% 
+  ggplot(aes(x = weekday, y = number_of_rides, fill = member_casual)) +
+  labs(title = "Number of Riders Per Day Group by Type of Customer", x = "Week Days", y = "Number of Rides")+
+  geom_col(position = "dodge")
+ggsave("Number of Riders Per Day Group by Type of Customer.png")
+```
+
+## Let's create a visualization for average duration
+```{r}
+Bike_rental %>% 
+  mutate(weekday = wday(started_at, label = TRUE)) %>% 
+  group_by(member_casual, weekday) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length), .groups = 'drop') %>% 
+  arrange(member_casual, weekday)  %>% 
+  ggplot(aes(x = weekday, y = average_duration, fill = member_casual)) +
+  labs(title = "Average Duration Per Week Day Group by Type of Customer", x = "Week Days", y = "Average Duration") +
+  geom_col(position = "dodge")
+ggsave("Average Duration Per Week Day Group by Type of Customer.png")
+```
+
+
+
+## Exporting the data
+
+```{r}
+write.csv(Bike_rental,file = file.choose(new = T))
+```
+
+
+
+
+
+
+
+
+
+
